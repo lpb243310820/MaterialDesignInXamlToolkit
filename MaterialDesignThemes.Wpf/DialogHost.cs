@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -37,13 +38,14 @@ namespace MaterialDesignThemes.Wpf
     [TemplatePart(Name = PopupPartName, Type = typeof(Popup))]
     [TemplatePart(Name = PopupPartName, Type = typeof(ContentControl))]
     [TemplatePart(Name = ContentCoverGridName, Type = typeof(Grid))]
-    [TemplateVisualState(GroupName = "PopupStates", Name = OpenStateName)]
-    [TemplateVisualState(GroupName = "PopupStates", Name = ClosedStateName)]
+    [TemplateVisualState(GroupName = PopupStatesName, Name = OpenStateName)]
+    [TemplateVisualState(GroupName = PopupStatesName, Name = ClosedStateName)]
     public class DialogHost : ContentControl
     {
         public const string PopupPartName = "PART_Popup";
         public const string PopupContentPartName = "PART_PopupContentElement";
         public const string ContentCoverGridName = "PART_ContentCoverGrid";
+        public const string PopupStatesName = "PopupStates";
         public const string OpenStateName = "Open";
         public const string ClosedStateName = "Closed";
 
@@ -186,7 +188,7 @@ namespace MaterialDesignThemes.Wpf
             if (IsOpen)
                 throw new InvalidOperationException("DialogHost is already open.");
 
-            
+
             _dialogTaskCompletionSource = new TaskCompletionSource<object>();
 
             AssertTargetableContent();
@@ -194,7 +196,7 @@ namespace MaterialDesignThemes.Wpf
             _asyncShowOpenedEventHandler = openedEventHandler;
             _asyncShowClosingEventHandler = closingEventHandler;
             SetCurrentValue(IsOpenProperty, true);
-            
+
             object result = await _dialogTaskCompletionSource.Task;
 
             _asyncShowOpenedEventHandler = null;
@@ -235,7 +237,9 @@ namespace MaterialDesignThemes.Wpf
 
             if (dialogHost._popupContentControl != null)
                 ValidationAssist.SetSuppress(dialogHost._popupContentControl, !dialogHost.IsOpen);
-            VisualStateManager.GoToState(dialogHost, dialogHost.SelectState(), !TransitionAssist.GetDisableTransitions(dialogHost));
+            bool useTransitions = !TransitionAssist.GetDisableTransitions(dialogHost);
+            string state = dialogHost.SelectState();
+            VisualStateManager.GoToState(dialogHost, state, useTransitions);
 
             if (dialogHost.IsOpen)
             {
@@ -263,7 +267,7 @@ namespace MaterialDesignThemes.Wpf
 
                 return;
             }
-            
+
             dialogHost.CurrentSession = new DialogSession(dialogHost);
             var window = Window.GetWindow(dialogHost);
             dialogHost._restoreFocusDialogClose = window != null ? FocusManager.GetFocusedElement(window) : null;
@@ -281,14 +285,15 @@ namespace MaterialDesignThemes.Wpf
 
             dialogHost.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
             {
-                CommandManager.InvalidateRequerySuggested();
-                UIElement child = dialogHost.FocusPopup();
+                //CommandManager.InvalidateRequerySuggested();
 
-                if (child != null)
+                //UIElement child = dialogHost.FocusPopup();
+
+                //if (child != null)
                 {
                     //https://github.com/ButchersBoy/MaterialDesignInXamlToolkit/issues/187
                     //totally not happy about this, but on immediate validation we can get some weird looking stuff...give WPF a kick to refresh...
-                    Task.Delay(300).ContinueWith(t => child.Dispatcher.BeginInvoke(new Action(() => child.InvalidateVisual())));
+                    //Task.Delay(300).ContinueWith(t => child.Dispatcher.BeginInvoke(new Action(() => child.InvalidateVisual())));
                 }
             }));
         }
@@ -457,9 +462,79 @@ namespace MaterialDesignThemes.Wpf
             if (_contentCoverGrid != null)
                 _contentCoverGrid.MouseLeftButtonUp += ContentCoverGridOnMouseLeftButtonUp;
 
+            if (VisualTreeHelper.GetChild(this, 0) is FrameworkElement child &&
+                VisualStateManager.GetVisualStateGroups(child) is IList groups &&
+                groups.OfType<VisualStateGroup>().FirstOrDefault(vsg => vsg.Name == PopupStatesName) is VisualStateGroup visualStateGroup)
+            {
+                visualStateGroup.CurrentStateChanged += VisualStateGroup_CurrentStateChanged;
+                visualStateGroup.CurrentStateChanging += VisualStateGroup_CurrentStateChanging;
+
+                var transition = visualStateGroup.Transitions.OfType<VisualTransition>().FirstOrDefault(x => x.From == ClosedStateName && x.To == OpenStateName);
+                transition.Storyboard.Completed -= Storyboard_Completed;
+                transition.Storyboard.Completed += Storyboard_Completed;
+
+                void Storyboard_Completed(object sender, EventArgs e)
+                {
+                    //transition.Storyboard.Completed -= Storyboard_Completed;
+                    OnPopupShown();
+                }
+
+                if (visualStateGroup.States.OfType<VisualState>().FirstOrDefault(x => x.Name == OpenStateName) is VisualState openState)
+                {
+                    //openState.Storyboard.Completed += Storyboard_Completed;
+                }
+            }
+
             VisualStateManager.GoToState(this, SelectState(), false);
 
             base.OnApplyTemplate();
+        }
+
+        private void VisualStateGroup_CurrentStateChanging(object sender, VisualStateChangedEventArgs e)
+        {
+            if (e.NewState.Storyboard is { } storyboard)
+            {
+                storyboard.Completed += Storyboard_Completed;
+                
+
+            }
+
+            void Storyboard_Completed(object sender, EventArgs e)
+            {
+                storyboard.Completed -= Storyboard_Completed;
+            }
+        }
+
+        private void Storyboard_Completed(object sender, EventArgs e)
+        {
+
+        }
+
+        private void VisualStateGroup_CurrentStateChanged(object sender, VisualStateChangedEventArgs e)
+        {
+            if (e.NewState?.Name == OpenStateName &&
+                _popup?.Child is UIElement child)
+            {
+                
+            }
+        }
+
+        private void OnPopupShown()
+        {
+            if (_popup?.Child is UIElement child)
+            {
+                CommandManager.InvalidateRequerySuggested();
+                //var focusable = child.VisualDepthFirstTraversal().OfType<UIElement>().FirstOrDefault(ui => ui.Focusable && ui.IsVisible);
+                //focusable?.Dispatcher.InvokeAsync(() =>
+                //{
+                //    //if (!focusable.Focus()) return;
+                //    focusable.MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
+                //}, DispatcherPriority.Background);
+
+                //https://github.com/ButchersBoy/MaterialDesignlInXamlToolkit/issues/187
+                //totally not happy about this, but on immediate validation we can get some weird looking stuff...give WPF a kick to refresh...
+                //Task.Delay(300).ContinueWith(t => child.Dispatcher.BeginInvoke(new Action(() => child.InvalidateVisual())));
+            }
         }
 
         #region open dialog events/callbacks
@@ -592,7 +667,7 @@ namespace MaterialDesignThemes.Wpf
             DialogClosingCallback?.Invoke(this, dialogClosingEventArgs);
             _asyncShowClosingEventHandler?.Invoke(this, dialogClosingEventArgs);
 
-            
+
             if (!dialogClosingEventArgs.IsCancelled)
             {
                 _dialogTaskCompletionSource?.TrySetResult(parameter);
@@ -613,13 +688,13 @@ namespace MaterialDesignThemes.Wpf
             var child = _popup?.Child;
             if (child == null) return null;
 
-            CommandManager.InvalidateRequerySuggested();
-            var focusable = child.VisualDepthFirstTraversal().OfType<UIElement>().FirstOrDefault(ui => ui.Focusable && ui.IsVisible);
-            focusable?.Dispatcher.InvokeAsync(() =>
-            {
-                if (!focusable.Focus()) return;
-                focusable.MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
-            }, DispatcherPriority.Background);
+            //CommandManager.InvalidateRequerySuggested();
+            //var focusable = child.VisualDepthFirstTraversal().OfType<UIElement>().FirstOrDefault(ui => ui.Focusable && ui.IsVisible);
+            //focusable?.Dispatcher.InvokeAsync(() =>
+            //{
+            //    if (!focusable.Focus()) return;
+            //    focusable.MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
+            //}, DispatcherPriority.Background);
 
             return child;
         }

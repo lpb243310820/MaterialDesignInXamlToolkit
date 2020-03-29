@@ -20,7 +20,8 @@ namespace MaterialDesignColors.WpfExample
         public MainWindow()
         {
             InitializeComponent();
-
+            Keyboard.AddGotKeyboardFocusHandler(this, OnGotKeybaordFocus);
+            FocusManager.AddGotFocusHandler(this, OnGotFocus);
             Task.Factory.StartNew(() =>
             {
                 Thread.Sleep(2500);
@@ -34,6 +35,29 @@ namespace MaterialDesignColors.WpfExample
             DataContext = new MainWindowViewModel(MainSnackbar.MessageQueue);
 
             Snackbar = this.MainSnackbar;
+        }
+
+        private void OnGotFocus(object sender, RoutedEventArgs e)
+        {
+            string name = e.OriginalSource switch
+            {
+                DialogHost dh => dh.Identifier?.ToString() ?? dh.Name,
+                FrameworkElement fe => fe.Name,
+                _ => "Unknown"
+            };
+            Debug.WriteLine($"{Interlocked.Increment(ref _FocusCount)} GotFocus {e.OriginalSource} {name}");
+        }
+
+        private int _FocusCount;
+        private void OnGotKeybaordFocus(object sender, KeyboardFocusChangedEventArgs e)
+        {
+            string name = e.NewFocus switch
+            {
+                DialogHost dh => dh.Identifier?.ToString() ?? dh.Name,
+                FrameworkElement fe => fe.Name,
+                _ => "Unknown"
+            };
+            Debug.WriteLine($"{Interlocked.Increment(ref _FocusCount)} GotKeybordFocus {e.NewFocus} {name}");
         }
 
         private void UIElement_OnPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
